@@ -1,0 +1,19 @@
+# Business Scraper API Requirements
+# Core API framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Web scraping and browser automation
+botasaurus>=4.0.0
+
+# Data processing
+pandas>=2.2.0
+
+# HTTP requests (fallback)
+requests>=2.31.0
+
+# HTML parsing
+beautifulsoup4>=4.12.2
+
+# Additional utilities
+python-multipart>=0.0.6
