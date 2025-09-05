@@ -15,6 +15,10 @@ import random
 from typing import List, Dict, Union, Optional
 from dataclasses import dataclass
 import asyncio
+import threading
+
+# Global semaphore to limit concurrent browser instances (prevent OOM/crashes)
+BROWSER_SEMAPHORE = threading.BoundedSemaphore(1)  # Max 1 browser for low-memory environments
 
 # Check and install dependencies
 def install_and_import(package_name: str, import_name: str = None):
@@ -49,6 +53,45 @@ try:
 except ImportError:
     BOTASAURUS_AVAILABLE = False
     print("! Botasaurus not available - install botasaurus")
+
+# --- Botasaurus runtime adapter: expand `options` dict into real kwargs if needed ---
+import logging
+logger = logging.getLogger(__name__)
+
+def install_botasaurus_adapter():
+    try:
+        import inspect
+        from importlib import import_module
+        mod = import_module('botasaurus.browser')
+        orig_browser = getattr(mod, 'browser')
+        sig = inspect.signature(orig_browser)
+        if 'options' not in sig.parameters:
+            def _browser_wrapper(*args, **kwargs):
+                if 'options' in kwargs and isinstance(kwargs['options'], dict):
+                    opts = kwargs.pop('options')
+                    for k, v in opts.items():
+                        kwargs.setdefault(k, v)
+                return orig_browser(*args, **kwargs)
+            _browser_wrapper.__name__ = getattr(orig_browser, "__name__", "browser")
+            _browser_wrapper.__doc__ = getattr(orig_browser, "__doc__", "")
+            setattr(mod, 'browser', _browser_wrapper)
+            # also set on package root if present
+            try:
+                import botasaurus as _bt
+                if getattr(_bt, 'browser', None) is None:
+                    setattr(_bt, 'browser', _browser_wrapper)
+            except Exception:
+                pass
+            logger.info("Botasaurus adapter installed (options -> kwargs).")
+    except Exception as e:
+        logger.warning("Botasaurus adapter install failed or not needed: %s", e)
+
+# call it if botasaurus is available
+try:
+    import botasaurus
+    install_botasaurus_adapter()
+except Exception:
+    pass
 
 # --- CONFIGURATION ---
 BASE_URL = "https://canada.businessesforsale.com/canadian/search/businesses-for-sale?Price.From=4000000&PriceDisclosedOnly=1"
@@ -728,6 +771,11 @@ if FASTAPI_AVAILABLE:
         description="API for scraping high-value business listings",
         version="1.0.0"
     )
+
+    @app.get("/health")
+    async def health():
+        """Health check endpoint for Render monitoring"""
+        return {"status": "ok", "service": "business-scraper-api"}
     
     @app.get("/")
     async def root():
@@ -809,47 +857,49 @@ if FASTAPI_AVAILABLE:
         if not BOTASAURUS_AVAILABLE:
             raise HTTPException(status_code=503, detail="Botasaurus not available")
         
-        scraping_in_progress = True
-        start_time = time.time()
-        
-        try:
-            logger.info("🎯 Starting direct scraping...")
-            businesses = fast_scrape_with_browser()
+        # Use semaphore to limit concurrent browser instances
+        with BROWSER_SEMAPHORE:
+            scraping_in_progress = True
+            start_time = time.time()
             
-            if businesses:
-                scraped_data = businesses
-                last_scrape_time = time.time()
-                total_time = time.time() - start_time
+            try:
+                logger.info("🎯 Starting direct scraping...")
+                businesses = fast_scrape_with_browser()
                 
-                logger.info(f"🏆 Scraping completed! {len(businesses)} businesses in {total_time:.2f}s")
-                
+                if businesses:
+                    scraped_data = businesses
+                    last_scrape_time = time.time()
+                    total_time = time.time() - start_time
+                    
+                    logger.info(f"🏆 Scraping completed! {len(businesses)} businesses in {total_time:.2f}s")
+                    
+                    return {
+                        "message": "Scraping completed successfully",
+                        "status": "completed",
+                        "count": len(businesses),
+                        "scraping_time_seconds": round(total_time, 2),
+                        "last_scrape_time": last_scrape_time,
+                        "businesses": businesses
+                    }
+                else:
+                    logger.error("💥 Scraping failed - no data retrieved")
+                    return {
+                        "message": "Scraping failed - no data retrieved",
+                        "status": "failed",
+                        "count": 0,
+                        "businesses": []
+                    }
+                    
+            except Exception as e:
+                logger.error(f"💥 Scraping error: {e}")
                 return {
-                    "message": "Scraping completed successfully",
-                    "status": "completed",
-                    "count": len(businesses),
-                    "scraping_time_seconds": round(total_time, 2),
-                    "last_scrape_time": last_scrape_time,
-                    "businesses": businesses
-                }
-            else:
-                logger.error("💥 Scraping failed - no data retrieved")
-                return {
-                    "message": "Scraping failed - no data retrieved",
-                    "status": "failed",
+                    "message": f"Scraping error: {str(e)}",
+                    "status": "error",
                     "count": 0,
                     "businesses": []
                 }
-                
-        except Exception as e:
-            logger.error(f"💥 Scraping error: {e}")
-            return {
-                "message": f"Scraping error: {str(e)}",
-                "status": "error",
-                "count": 0,
-                "businesses": []
-            }
-        finally:
-            scraping_in_progress = False
+            finally:
+                scraping_in_progress = False
     
     
     @app.get("/data/search")
