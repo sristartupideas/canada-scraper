@@ -105,7 +105,7 @@ def fast_scrape_with_browser() -> List[Dict]:
     
     from botasaurus.browser import browser, Driver
     
-    @browser(headless=True, chrome_options=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-port=9222"])
+    @browser(headless=True, options=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-port=9222"])
     def optimized_scraper(driver: Driver, _):
         """Optimized scraper that gets all 165 businesses with full descriptions."""
         all_businesses = []
@@ -536,7 +536,7 @@ def scrape_with_browser() -> List[Dict]:
     
     from botasaurus.browser import browser, Driver
     
-    @browser(headless=True, chrome_options=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-port=9222"])
+    @browser(headless=True, options=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-port=9222"])
     def scrape_all_pages_browser(driver: Driver, _):
         """Browser-based scraping with individual page visits for full descriptions."""
         all_businesses = []
@@ -944,7 +944,7 @@ if FASTAPI_AVAILABLE:
             
             from botasaurus.browser import browser, Driver
             
-            @browser(headless=True, chrome_options=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-port=9222"])
+            @browser(headless=True, options=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-port=9222"])
             def get_details_for_businesses(driver: Driver, _):
                 detailed_businesses = []
                 
